@@ -64,5 +64,20 @@ module Main_Decoder (
     // Load / Store size indicators
     assign LoadType  = is_load  ? funct3 : 3'b000;
     assign StoreType = is_store ? funct3 : 3'b000;
-
+    always @(*) begin
+    if (Op == 7'b1101111) begin  // JAL instruction
+        $display("CONTROL DEBUG: JAL instruction detected!");
+        $display("  Op=0x%02h, Jump=%b, RegWrite=%b, ImmSrc=%b", 
+                 Op, Jump, RegWrite, ImmSrc);
+    end
+    if (Op == 7'b1100111) begin  // JALR instruction  
+        $display("CONTROL DEBUG: JALR instruction detected!");
+        $display("  Op=0x%02h, Jump=%b, RegWrite=%b, ImmSrc=%b",
+                 Op, Jump, RegWrite, ImmSrc);
+    end
+    if (Op == 7'b1100011) begin  // Branch instruction
+        $display("CONTROL DEBUG: BRANCH instruction detected!");
+        $display("  Op=0x%02h, Branch=%b, funct3=0x%h", Op, Branch, funct3);
+    end
+end
 endmodule

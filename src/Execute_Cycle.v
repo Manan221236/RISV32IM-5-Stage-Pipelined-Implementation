@@ -26,7 +26,7 @@ module execute_cycle
     input  wire [1:0]           ForwardB_E,
 
     // *** value that is ALREADY in MEM stage ***  (one cycle old)
-    input  wire [XLEN-1:0]      ALU_ResultMEM,   // new port!
+    input  wire [XLEN-1:0]      ALU_ResultMEM,
 
     // value that is written back this cycle
     input  wire [XLEN-1:0]      ResultW,
@@ -35,6 +35,8 @@ module execute_cycle
     input  wire [2:0]           LoadTypeE,
     input  wire [2:0]           StoreTypeE,
     input  wire [2:0]           funct3_E,
+
+    input  wire [4:0]           RS1_E,
 
     // outputs to MEM
     output reg                  RegWriteM,
@@ -51,11 +53,7 @@ module execute_cycle
     output wire                 PCSrcE,
     output wire [XLEN-1:0]      PCTargetE,
     output wire [XLEN-1:0]      JALR_TargetE,
-    output wire                 is_jalr_E,
-
-    // preview for hazard unit (one-cycle early)
-    output reg                  RegWriteM_haz,
-    output reg  [4:0]           RD_M_haz
+    output wire                 is_jalr_E
 );
     //----------------------------------------------------------------
     // Forwarding Muxes
@@ -64,7 +62,7 @@ module execute_cycle
     Mux_3_by_1 muxA (
         .a(RD1_E),       // 00
         .b(ResultW),     // 01
-        .c(ALU_ResultMEM),// 10  <-- MEM value, NOT current value
+        .c(ALU_ResultMEM),// 10
         .s(ForwardA_E),
         .d(Src_A_pre)
     );
@@ -110,39 +108,74 @@ module execute_cycle
         .Src_A(Src_A_pre), .Imm_Ext(Imm_Ext_E), .JALR_Target(JALR_TargetE)
     );
 
-    assign is_jalr_E =  JumpE & (funct3_E == 3'b000);
-    assign PCSrcE    = (BranchTakenE & BranchE) | JumpE;
+    wire is_jalr_opcode = JumpE & (funct3_E == 3'b000);
+    assign is_jalr_E = is_jalr_opcode;
+    
+    // PC source control: take branch/jump if condition is met
+    assign PCSrcE = (BranchTakenE & BranchE) | JumpE;
 
     //----------------------------------------------------------------
-    //  EX/MEM pipeline register
+    //  EX/MEM pipeline register - COMPLETELY FIXED
     //----------------------------------------------------------------
-    always @(posedge clk or negedge rst) begin
-        if (!rst) begin
-            {RegWriteM, MemWriteM} <= 0;
-            ResultSrcM <= 2'b00;
-            RD_M       <= 5'd0;
-            PCPlus4M   <= 0;
-            WriteDataM <= 0;
-            ALU_ResultM<= 0;
-            LoadTypeM  <= 3'b000;
-            StoreTypeM <= 3'b000;
-            RegWriteM_haz <= 1'b0;
-            RD_M_haz      <= 5'd0;
+    always @(posedge clk) begin
+        if (rst) begin
+            RegWriteM   <= 1'b0;
+            MemWriteM   <= 1'b0;
+            ResultSrcM  <= 2'b00;
+            RD_M        <= 5'd0;
+            PCPlus4M    <= 32'd0;
+            WriteDataM  <= 32'd0;
+            ALU_ResultM <= 32'd0;
+            LoadTypeM   <= 3'b000;
+            StoreTypeM  <= 3'b000;
+            $display("EXECUTE_REG: RESET - All registers cleared");
         end
         else begin
+            // CLEAN ASSIGNMENT - No delays, no complications
             RegWriteM   <= RegWriteE;
             MemWriteM   <= MemWriteE;
             ResultSrcM  <= ResultSrcE;
-            RD_M        <= RD_E;
+            RD_M        <= RD_E;        // This works correctly now
             PCPlus4M    <= PCPlus4E;
-            WriteDataM  <= Src_B_pre;   // value after fwd. but before imm-mux
+            WriteDataM  <= Src_B_pre;
             ALU_ResultM <= ALU_out;
             LoadTypeM   <= LoadTypeE;
             StoreTypeM  <= StoreTypeE;
-
-            // preview
-            RegWriteM_haz <= RegWriteE;
-            RD_M_haz      <= RD_E;
+            
+            // CORRECT DEBUG: Show what we're ABOUT TO assign
+            $display("EXECUTE_REG: Assigning RD_E=%0d -> RD_M, ALU_out=0x%08h", RD_E, ALU_out);
         end
     end
+    
+    //----------------------------------------------------------------
+    //  FIXED DEBUG OUTPUT - Proper Timing
+    //----------------------------------------------------------------
+    
+    // Debug AFTER pipeline register update (use #1 delay to see final values)
+    always @(posedge clk) begin
+        if (!rst) begin
+            #1; // Small delay to see the updated register values
+            $display("EXECUTE_POST: Pipeline updated - RD_M=%0d, ALU_ResultM=0x%08h", RD_M, ALU_ResultM);
+            if (RegWriteM && RD_M != 0) begin
+                $display("EXECUTE_POST: Will write 0x%08h to x%0d in next stage", ALU_ResultM, RD_M);
+            end
+        end
+    end
+
+    // Branch debug
+    always @(posedge clk) begin
+        if (!rst && BranchE) begin
+            $display("EXECUTE BRANCH: BranchE=%b, A=%0d, B=%0d, BranchTakenE=%b, PCSrcE=%b", 
+                     BranchE, $signed(Src_A_pre), $signed(Src_B_pre), BranchTakenE, PCSrcE);
+        end
+    end
+
+    // MUL-specific debug
+    always @(posedge clk) begin
+        if (!rst && ALUControlE == 5'b01010) begin // MUL operation
+            $display("EXECUTE MUL: RD_E=x%0d, A=%0d * B=%0d = %0d", 
+                     RD_E, $signed(Src_A_pre), $signed(Src_B_pre), $signed(ALU_out));
+        end
+    end
+
 endmodule

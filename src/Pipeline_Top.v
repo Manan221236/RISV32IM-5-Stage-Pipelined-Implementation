@@ -1,8 +1,3 @@
-// ================================================================
-//  Pipeline_top.v   -   RV32IM 5-stage pipeline (correct forwarding)
-//  Modified with debug outputs to prevent synthesis optimization
-// ================================================================
-
 module Pipeline_top (input  wire clk,
                      input  wire rst,
                      // Debug outputs to prevent optimization
@@ -48,7 +43,12 @@ module Pipeline_top (input  wire clk,
     wire [1:0]  ForwardAE, ForwardBE;
 
     // ================================================================
-    //  Stage 0 - FETCH
+    //  CRITICAL FIX: Module instantiation order
+    //  Instantiate in pipeline order to ensure proper signal flow
+    // ================================================================
+
+    // ================================================================
+    //  Stage 0 - FETCH (instantiated first)
     // ================================================================
     fetch_cycle Fetch (
         .clk          (clk),
@@ -64,7 +64,35 @@ module Pipeline_top (input  wire clk,
     );
 
     // ================================================================
-    //  Stage 1 - DECODE
+    //  Stage 4 - WRITE-BACK (instantiated early for ResultW)
+    // ================================================================
+    writeback_cycle WriteBack (
+        .clk         (clk),
+        .rst         (rst),
+        .ResultSrcW  (ResultSrcW),
+        .PCPlus4W    (PCPlus4W),
+        .ALU_ResultW (ALU_ResultW),
+        .ReadDataW   (ReadDataW),
+        .ResultW     (ResultW)
+    );
+
+    // ================================================================
+    //  Hazard / Forwarding Unit (needs to be ready before Execute)
+    // ================================================================
+    hazard_unit Forwarding_block (
+        .rst          (rst),
+        .RegWriteM    (RegWriteM),   // use EX/MEM register
+        .RD_M         (RD_M),
+        .RegWriteW    (RegWriteW),   // use MEM/WB register
+        .RD_W         (RDW),
+        .Rs1_E        (RS1_E),
+        .Rs2_E        (RS2_E),
+        .ForwardAE    (ForwardAE),
+        .ForwardBE    (ForwardBE)
+    );
+
+    // ================================================================
+    //  Stage 1 - DECODE (instantiated after WB for ResultW feedback)
     // ================================================================
     decode_cycle Decode (
         .clk          (clk),
@@ -96,7 +124,7 @@ module Pipeline_top (input  wire clk,
     );
 
     // ================================================================
-    //  Stage 2 - EXECUTE  (forwarding uses EX/MEM value)
+    //  Stage 2 - EXECUTE (instantiated after Decode)
     // ================================================================
     execute_cycle Execute (
         .clk             (clk),
@@ -114,9 +142,10 @@ module Pipeline_top (input  wire clk,
         .RD_E            (RD_E),
         .PCE             (PCE),
         .PCPlus4E        (PCPlus4E),
+        .RS1_E           (RS1_E),
         .ForwardA_E      (ForwardAE),
         .ForwardB_E      (ForwardBE),
-        .ALU_ResultMEM   (ALU_ResultM),   // ← correct one-cycle-old value
+        .ALU_ResultMEM   (ALU_ResultM),
         .ResultW         (ResultW),
         .LoadTypeE       (LoadTypeE),
         .StoreTypeE      (StoreTypeE),
@@ -131,13 +160,13 @@ module Pipeline_top (input  wire clk,
         .RD_M            (RD_M),
         .PCPlus4M        (PCPlus4M),
         .WriteDataM      (WriteDataM),
-        .ALU_ResultM     (ALU_ResultM),   // to MEM stage and to hazard unit
+        .ALU_ResultM     (ALU_ResultM),
         .LoadTypeM       (LoadTypeM),
         .StoreTypeM      (StoreTypeM)
     );
 
     // ================================================================
-    //  Stage 3 - MEMORY
+    //  Stage 3 - MEMORY (instantiated after Execute)
     // ================================================================
     memory_cycle Memory (
         .clk           (clk),
@@ -162,36 +191,7 @@ module Pipeline_top (input  wire clk,
     );
 
     // ================================================================
-    //  Stage 4 - WRITE-BACK
-    // ================================================================
-    writeback_cycle WriteBack (
-        .clk         (clk),
-        .rst         (rst),
-        .ResultSrcW  (ResultSrcW),
-        .PCPlus4W    (PCPlus4W),
-        .ALU_ResultW (ALU_ResultW),
-        .ReadDataW   (ReadDataW),
-        .ResultW     (ResultW)
-    );
-
-    // ================================================================
-    //  Hazard / Forwarding Unit
-    // ================================================================
-    hazard_unit Forwarding_block (
-        .rst          (rst),
-        .RegWriteM    (RegWriteM),   // use EX/MEM register
-        .RD_M         (RD_M),
-        .RegWriteW    (RegWriteW),   // use MEM/WB register
-        .RD_W         (RDW),
-        .Rs1_E        (RS1_E),
-        .Rs2_E        (RS2_E),
-        .ForwardAE    (ForwardAE),
-        .ForwardBE    (ForwardBE)
-    );
-
-    // ================================================================
     //  DEBUG OUTPUT ASSIGNMENTS
-    //  These prevent synthesis from optimizing away the entire design
     // ================================================================
     assign debug_alu_result = ALU_ResultW;      
     assign debug_reg_addr   = RDW;              

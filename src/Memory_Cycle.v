@@ -35,9 +35,9 @@ module memory_cycle(clk, rst, RegWriteM, MemWriteM, ResultSrcM, RD_M, PCPlus4M, 
         .StoreType(StoreTypeM)
     );
     
-    // Memory Stage Register Logic
-    always @(posedge clk or negedge rst) begin
-        if (rst == 1'b0) begin
+    // FIXED: Memory Stage Register Logic with Active-HIGH Reset
+    always @(posedge clk) begin  // FIXED: Removed edge sensitivity
+        if (rst) begin           // FIXED: rst=1 means reset (active-HIGH)
             RegWriteM_r <= 1'b0; 
             ResultSrcM_r <= 2'b00;
             RD_M_r <= 5'h00;
@@ -46,8 +46,9 @@ module memory_cycle(clk, rst, RegWriteM, MemWriteM, ResultSrcM, RD_M, PCPlus4M, 
             ReadDataM_r <= 32'h00000000;
             LoadTypeM_r <= 3'b000;
             StoreTypeM_r <= 3'b000;
+            $display("MEMORY_REG: RESET - All pipeline registers cleared");
         end
-        else begin
+        else begin               // rst=0 means normal operation
             RegWriteM_r <= RegWriteM; 
             ResultSrcM_r <= ResultSrcM;
             RD_M_r <= RD_M;
@@ -56,6 +57,19 @@ module memory_cycle(clk, rst, RegWriteM, MemWriteM, ResultSrcM, RD_M, PCPlus4M, 
             ReadDataM_r <= ReadDataM;
             LoadTypeM_r <= LoadTypeM;
             StoreTypeM_r <= StoreTypeM;
+            
+            $display("MEMORY_REG: RegWriteM=%b->RegWriteM_r=%b, RD_M=x%0d->RD_M_r=x%0d, ALU_ResultM=0x%08h", 
+                     RegWriteM, RegWriteM_r, RD_M, RD_M_r, ALU_ResultM);
+                     
+            // ENHANCED PIPELINE DEBUG
+            if (RegWriteM && RD_M != 0) begin
+                $display("MEMORY_PIPELINE: Instruction writing to x%0d with value 0x%08h flowing to writeback", 
+                         RD_M, ALU_ResultM);
+                if (RD_M == 15 || RD_M == 14) begin
+                    $display("MEMORY_CRITICAL: Writing to factorial register x%0d with value %0d", 
+                             RD_M, $signed(ALU_ResultM));
+                end
+            end
         end
     end 
     
@@ -68,4 +82,24 @@ module memory_cycle(clk, rst, RegWriteM, MemWriteM, ResultSrcM, RD_M, PCPlus4M, 
     assign ReadDataW = ReadDataM_r;
     assign LoadTypeW = LoadTypeM_r;
     assign StoreTypeW = StoreTypeM_r;
+    
+    // Debug output for memory operations
+    always @(posedge clk) begin
+        if (!rst && MemWriteM) begin
+            $display("MEMORY DEBUG: Store operation - Address=0x%08h, Data=0x%08h", 
+                     ALU_ResultM, WriteDataM);
+        end
+        if (!rst && RegWriteM && RD_M != 0) begin
+            $display("MEMORY DEBUG: Register write setup - RD_M=x%0d, ALU_ResultM=0x%08h", 
+                     RD_M, ALU_ResultM);
+        end
+    end
+    
+    // CRITICAL DEBUG: Track what goes to writeback
+    always @(posedge clk) begin
+        if (!rst && RegWriteM_r && RD_M_r != 0) begin
+            $display("MEMORY_TO_WB: Sending to writeback - RegWrite=%b, RD=x%0d, ALU_Result=0x%08h, ResultSrc=%b", 
+                     RegWriteM_r, RD_M_r, ALU_ResultM_r, ResultSrcM_r);
+        end
+    end
 endmodule
