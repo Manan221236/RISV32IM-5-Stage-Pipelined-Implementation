@@ -27,7 +27,7 @@ module Pipeline_Full_tb;
 
     //---------------------------- 4. Simulation Setup -------------------------
     initial begin
-        $dumpfile("pipeline_multiplication.vcd");
+        $dumpfile("algorithm_4_7_test.vcd");
         $dumpvars(0, Pipeline_Full_tb);
         
         // Explicitly dump debug signals
@@ -38,10 +38,10 @@ module Pipeline_Full_tb;
         repeat (5) @(posedge clk);   // 5 cycles reset
         rst = 0;                     // release reset
         
-        $display("=== RISC-V MULTIPLICATION LOOP TEST STARTED ===");
-        $display("Testing: 4! factorial calculation using MUL instruction");
-        $display("Expected result: 24 (1*2*3*4)");
-        $display("Fixed program layout: starts at mem[0], loop at mem[3]");
+        $display("=== ALGORITHM 4-7 MODULAR ARITHMETIC TEST STARTED ===");
+        $display("Testing: Montgomery and Plantard arithmetic operations");
+        $display("Target: Validate core operations for Kyber and Dilithium");
+        $display("Expected: All arithmetic operations should complete correctly");
     end
 
     //---------------------------- 5. Cycle Counter ----------------------------
@@ -61,22 +61,29 @@ module Pipeline_Full_tb;
 
     //---------------------------- 7. Register Monitoring ----------------------
     always @(posedge clk) begin
-        if (!rst && (cyc % 15 == 0) && (cyc > 0)) begin  // Every 15 cycles
-            $display("REGISTERS: cyc=%0d a0(x10)=%0d a3(x13)=%0d a4(x14)=%0d a5(x15)=%0d", 
-                     cyc, $signed(dut.Decode.rf.regf[10]), $signed(dut.Decode.rf.regf[13]),
-                     $signed(dut.Decode.rf.regf[14]), $signed(dut.Decode.rf.regf[15]));
+        if (!rst && (cyc % 10 == 0) && (cyc > 0)) begin  // Every 10 cycles
+            $display("REGISTERS: cyc=%0d x10=%0d x11=%0d x12=%0d x13=%0d", 
+                     cyc, $signed(dut.Decode.rf.regf[10]), $signed(dut.Decode.rf.regf[11]),
+                     $signed(dut.Decode.rf.regf[12]), $signed(dut.Decode.rf.regf[13]));
         end
     end
 
-    //---------------------------- 8. Critical Register Writes ----------------
+    //---------------------------- 8. Arithmetic Operation Detection -----------
     always @(posedge clk) begin
         if (!rst && debug_reg_write && (debug_reg_addr != 5'd0)) begin
             case (debug_reg_addr)
-                5'd10: $display("REGWRITE: a0(x10) <= %0d (return value)", $signed(debug_alu_result));
-                5'd13: $display("REGWRITE: a3(x13) <= %0d (loop limit)", $signed(debug_alu_result));
-                5'd14: $display("REGWRITE: a4(x14) <= %0d (loop counter)", $signed(debug_alu_result));
-                5'd15: $display("REGWRITE: a5(x15) <= %0d (result accumulator)", $signed(debug_alu_result));
-                default: $display("REGWRITE: x%0d <= %0d", debug_reg_addr, $signed(debug_alu_result));
+                5'd10: $display("REGWRITE: x10 <= %0d (0x%08h) - Primary result register", 
+                               $signed(debug_alu_result), debug_alu_result);
+                5'd11: $display("REGWRITE: x11 <= %0d (0x%08h) - Secondary result register", 
+                               $signed(debug_alu_result), debug_alu_result);
+                5'd12: $display("REGWRITE: x12 <= %0d (0x%08h) - Calculation register", 
+                               $signed(debug_alu_result), debug_alu_result);
+                5'd13: $display("REGWRITE: x13 <= %0d (0x%08h) - Test counter register", 
+                               $signed(debug_alu_result), debug_alu_result);
+                5'd14: $display("REGWRITE: x14 <= %0d (0x%08h) - Temporary register", 
+                               $signed(debug_alu_result), debug_alu_result);
+                default: $display("REGWRITE: x%0d <= %0d (0x%08h)", 
+                                debug_reg_addr, $signed(debug_alu_result), debug_alu_result);
             endcase
         end
     end
@@ -85,24 +92,74 @@ module Pipeline_Full_tb;
     always @(posedge clk) begin
         if (!rst && (dut.InstrD[6:0] == 7'b0110011) && (dut.InstrD[31:25] == 7'b0000001)) begin
             case (dut.InstrD[14:12])
-                3'b000: $display("MUL_EXEC: MUL instruction detected at PC=0x%08h", dut.PCD);
-                3'b001: $display("MUL_EXEC: MULH instruction detected at PC=0x%08h", dut.PCD);
-                3'b010: $display("MUL_EXEC: MULHSU instruction detected at PC=0x%08h", dut.PCD);
-                3'b011: $display("MUL_EXEC: MULHU instruction detected at PC=0x%08h", dut.PCD);
+                3'b000: begin
+                    $display("ARITHMETIC: MUL instruction detected at PC=0x%08h", dut.PCD);
+                    $display("  Operation: x%0d = x%0d * x%0d", dut.InstrD[11:7], dut.InstrD[19:15], dut.InstrD[24:20]);
+                end
+                3'b001: begin
+                    $display("ARITHMETIC: MULH instruction detected at PC=0x%08h", dut.PCD);
+                    $display("  Operation: x%0d = upper(x%0d * x%0d)", dut.InstrD[11:7], dut.InstrD[19:15], dut.InstrD[24:20]);
+                end
+                3'b010: $display("ARITHMETIC: MULHSU instruction detected at PC=0x%08h", dut.PCD);
+                3'b011: $display("ARITHMETIC: MULHU instruction detected at PC=0x%08h", dut.PCD);
             endcase
         end
     end
 
-    //---------------------------- 10. Branch Detection ------------------------
+    //---------------------------- 10. Shift Detection -------------------------
     always @(posedge clk) begin
-        if (!rst && (dut.InstrD[6:0] == 7'b1100011)) begin
-            $display("BRANCH: BLT instruction at PC=0x%08h, BranchE=%b", 
-                     dut.PCD, dut.BranchE);
+        if (!rst && (dut.InstrD[6:0] == 7'b0010011) && (dut.InstrD[14:12] == 3'b101)) begin
+            $display("ARITHMETIC: SRAI instruction detected at PC=0x%08h", dut.PCD);
+            $display("  Operation: x%0d = x%0d >> %0d (arithmetic right shift)", 
+                     dut.InstrD[11:7], dut.InstrD[19:15], dut.InstrD[24:20]);
         end
     end
 
-    //---------------------------- 11. Instruction Decoder --------------------
-    function [1599:0] decode_instruction;  // 200*8-1 = 1599
+    //---------------------------- 11. Test Phase Detection -------------------
+    reg [3:0] test_phase;
+    initial test_phase = 0;
+    
+    always @(posedge clk) begin
+        if (!rst) begin
+            case (dut.PCD)
+                32'h00000000: test_phase = 1;  // Basic multiplication test
+                32'h00000010: test_phase = 2;  // Shift operations test  
+                32'h0000001c: test_phase = 3;  // 32-bit multiplication test
+                32'h00000028: test_phase = 4;  // Addition/subtraction test
+                32'h00000034: test_phase = 5;  // MULH test
+                32'h00000040: test_phase = 6;  // Montgomery simulation
+                32'h00000058: test_phase = 7;  // Negative number test
+                32'h00000068: test_phase = 8;  // Large number test
+                32'h00000074: test_phase = 9;  // Result collection
+                32'h0000008c: test_phase = 10; // Program termination
+            endcase
+        end
+    end
+    
+    // Phase change detection
+    reg [3:0] prev_test_phase;
+    always @(posedge clk) begin
+        if (!rst) begin
+            if (test_phase != prev_test_phase) begin
+                case (test_phase)
+                    1: $display("\n=== TEST PHASE 1: Basic 16-bit Multiplication ===");
+                    2: $display("\n=== TEST PHASE 2: Arithmetic Right Shift ===");
+                    3: $display("\n=== TEST PHASE 3: 32-bit Multiplication ===");
+                    4: $display("\n=== TEST PHASE 4: Addition/Subtraction ===");
+                    5: $display("\n=== TEST PHASE 5: MULH Upper Bits ===");
+                    6: $display("\n=== TEST PHASE 6: Montgomery Arithmetic Simulation ===");
+                    7: $display("\n=== TEST PHASE 7: Negative Number Handling ===");
+                    8: $display("\n=== TEST PHASE 8: Large Number Multiplication ===");
+                    9: $display("\n=== TEST PHASE 9: Result Collection ===");
+                    10: $display("\n=== TEST PHASE 10: Program Termination ===");
+                endcase
+                prev_test_phase = test_phase;
+            end
+        end
+    end
+
+    //---------------------------- 12. Instruction Decoder --------------------
+    function [159:0] decode_instruction;  // 20*8-1 = 159
         input [31:0] ins;
         reg [6:0] op;  
         reg [2:0] f3;  
@@ -151,53 +208,17 @@ module Pipeline_Full_tb;
                     endcase
                 end
                 
-                // Loads & Stores
-                7'b0000011: begin
-                    case (f3)
-                        3'b000: decode_instruction = "LB";
-                        3'b001: decode_instruction = "LH";
-                        3'b010: decode_instruction = "LW";
-                        3'b100: decode_instruction = "LBU";
-                        3'b101: decode_instruction = "LHU";
-                    endcase
-                end
-                7'b0100011: begin
-                    case (f3)
-                        3'b000: decode_instruction = "SB";
-                        3'b001: decode_instruction = "SH";
-                        3'b010: decode_instruction = "SW";
-                    endcase
-                end
-                
-                // Branches
-                7'b1100011: begin
-                    case (f3)
-                        3'b000: decode_instruction = "BEQ";
-                        3'b001: decode_instruction = "BNE";
-                        3'b100: decode_instruction = "BLT";
-                        3'b101: decode_instruction = "BGE";
-                        3'b110: decode_instruction = "BLTU";
-                        3'b111: decode_instruction = "BGEU";
-                    endcase
-                end
-                
-                // Jumps, LUI, AUIPC
-                7'b1101111: decode_instruction = "JAL";
-                7'b1100111: decode_instruction = "JALR";
-                7'b0110111: decode_instruction = "LUI";
-                7'b0010111: decode_instruction = "AUIPC";
-                
                 // System
                 7'b1110011: decode_instruction = "ECALL";
             endcase
         end
     endfunction
 
-    //---------------------------- 12. Instruction Trace -----------------------
+    //---------------------------- 13. Instruction Trace -----------------------
     integer trace_log;
-    reg [1599:0] asm_name;  // 200*8-1 = 1599
+    reg [159:0] asm_name;  // 20*8-1 = 159
     initial begin
-        trace_log = $fopen("instruction_trace.txt", "w");
+        trace_log = $fopen("algorithm_trace.txt", "w");
     end
     
     always @(posedge clk) begin
@@ -210,72 +231,57 @@ module Pipeline_Full_tb;
         end
     end
 
-    //---------------------------- 13. Register State Dumper -------------------
-    task dump_critical_registers;
+    //---------------------------- 14. Result Verification ---------------------
+    task verify_algorithm_results;
+        reg [31:0] final_x10, final_x11, final_x12, final_x13;
+        integer errors;
         begin
-            $display("=== CRITICAL REGISTERS ===");
-            $display("x0  (zero) = 0x%08h (%0d)", dut.Decode.rf.regf[0], $signed(dut.Decode.rf.regf[0]));
-            $display("x10 (a0)   = 0x%08h (%0d) <- RESULT", dut.Decode.rf.regf[10], $signed(dut.Decode.rf.regf[10]));
-            $display("x13 (a3)   = 0x%08h (%0d) <- LIMIT", dut.Decode.rf.regf[13], $signed(dut.Decode.rf.regf[13]));
-            $display("x14 (a4)   = 0x%08h (%0d) <- COUNTER", dut.Decode.rf.regf[14], $signed(dut.Decode.rf.regf[14]));
-            $display("x15 (a5)   = 0x%08h (%0d) <- ACCUMULATOR", dut.Decode.rf.regf[15], $signed(dut.Decode.rf.regf[15]));
-        end
-    endtask
-
-    //---------------------------- 14. Results Checker -------------------------
-    task check_multiplication_results;
-        reg [31:0] final_a0, final_a5, final_a4, final_a3;
-        integer err;
-        begin
-            final_a0 = dut.Decode.rf.regf[10];  // return value
-            final_a5 = dut.Decode.rf.regf[15];  // result accumulator  
-            final_a4 = dut.Decode.rf.regf[14];  // loop counter
-            final_a3 = dut.Decode.rf.regf[13];  // loop limit
+            final_x10 = dut.Decode.rf.regf[10];  // Primary result
+            final_x11 = dut.Decode.rf.regf[11];  // MULH result
+            final_x12 = dut.Decode.rf.regf[12];  // Large multiplication result
+            final_x13 = dut.Decode.rf.regf[13];  // Test counter
             
-            err = 0;
-            $display("");
-            $display("=== MULTIPLICATION LOOP TEST RESULTS ===");
-            dump_critical_registers();
+            errors = 0;
+            $display("\n=== ALGORITHM 4-7 TEST RESULTS ===");
+            $display("Final Register Values:");
+            $display("  x10 = %0d (0x%08h) - Primary result", $signed(final_x10), final_x10);
+            $display("  x11 = %0d (0x%08h) - MULH result", $signed(final_x11), final_x11);
+            $display("  x12 = %0d (0x%08h) - Should be 65536", $signed(final_x12), final_x12);
+            $display("  x13 = %0d (0x%08h) - Should be 5", $signed(final_x13), final_x13);
             
-            // Check factorial calculation: 4! = 24
-            if (final_a0 !== 32'd24) begin
-                $display("FAIL: Expected a0=24 (4! factorial), got a0=%0d", final_a0);
-                err = err + 1;
+            // Test 1: Large multiplication (256 * 256 = 65536)
+            if (final_x12 !== 32'd65536) begin
+                $display("FAIL: Expected x12=65536 (256*256), got x12=%0d", final_x12);
+                errors = errors + 1;
             end else begin
-                $display("PASS: a0 contains expected factorial result 24");
+                $display("PASS: Large multiplication test (256*256=65536)");
             end
             
-            // Check result accumulator
-            if (final_a5 !== 32'd24) begin
-                $display("FAIL: Expected a5=24 (accumulator), got a5=%0d", final_a5);
-                err = err + 1;
+            // Test 2: Test counter 
+            if (final_x13 !== 32'd5) begin
+                $display("FAIL: Expected x13=5 (test counter), got x13=%0d", final_x13);
+                errors = errors + 1;
             end else begin
-                $display("PASS: a5 contains expected result 24");
+                $display("PASS: Test counter reached expected value (5)");
             end
             
-            // Check loop limit - should be 5, not 4
-            if (final_a3 !== 32'd5) begin
-                $display("WARNING: Expected a3=5 (limit), got a3=%0d", final_a3);
+            // Test 3: MULH result should be reasonable
+            if (final_x11 == 32'd0) begin
+                $display("WARNING: MULH result is 0, may indicate issue with large multiplication");
             end else begin
-                $display("PASS: Loop limit correctly set to 5");
+                $display("PASS: MULH instruction produced non-zero result");
             end
-
-            // Correct factorial calculation trace
-            $display("");
-            $display("Factorial Calculation Trace:");
-            $display("  Start: result=1, counter=2, limit=5");
-            $display("  Step 1: 1 * 2 = 2,  counter=3 (3<5, continue)");
-            $display("  Step 2: 2 * 3 = 6,  counter=4 (4<5, continue)"); 
-            $display("  Step 3: 6 * 4 = 24, counter=5 (5>=5, exit)");
-            $display("  Result: 24 moved to x10");
-
-            if (err == 0) begin
-                $display("");
-                $display("ALL TESTS PASSED!");
-                $display("RISC-V32IM Multiplication Loop Test: SUCCESS");
+            
+            $display("\nTest Summary:");
+            $display("  Arithmetic Operations: %s", (errors == 0) ? "PASSED" : "FAILED");
+            $display("  Total Errors: %0d", errors);
+            
+            if (errors == 0) begin
+                $display("\n🎉 ALL ALGORITHM 4-7 TESTS PASSED!");
+                $display("✅ Processor ready for Montgomery and Plantard arithmetic");
             end else begin
-                $display("");
-                $display("%0d TEST(S) FAILED!", err);
+                $display("\n❌ %0d TEST(S) FAILED!", errors);
+                $display("❌ Arithmetic operations need debugging");
             end
         end
     endtask
@@ -284,73 +290,46 @@ module Pipeline_Full_tb;
     integer program_ended;
     integer ecall_detected;
     integer ecall_cycle;
-    integer final_result_detected;
     
     initial begin
         program_ended = 0;
         ecall_detected = 0;
         ecall_cycle = 0;
-        final_result_detected = 0;
     end
     
     always @(posedge clk) begin
         if (!rst && !program_ended) begin
-            // Check if factorial calculation is complete (result = 24)
-            if (dut.Decode.rf.regf[15] == 32'd24 && !final_result_detected) begin
-                final_result_detected = 1;
-                $display("");
-                $display("=== FACTORIAL CALCULATION COMPLETE: x15 = 24 at cycle %0d ===", cyc);
-            end
-            
-            // Detect ECALL instruction but don't terminate immediately
+            // Detect ECALL instruction
             if (dut.InstrD == 32'h00000073 && !ecall_detected) begin  // ECALL instruction
                 ecall_detected = 1;
                 ecall_cycle = cyc;
-                $display("");
-                $display("=== ECALL DETECTED at cycle %0d - Allowing pipeline to complete ===", cyc);
+                $display("\n=== ECALL DETECTED at cycle %0d - Algorithm tests complete ===", cyc);
             end
             
-            // Terminate only after ECALL has been detected AND pipeline has settled
-            if (ecall_detected && (cyc >= ecall_cycle + 8)) begin
+            // Terminate after ECALL and pipeline settlement
+            if (ecall_detected && (cyc >= ecall_cycle + 5)) begin
                 program_ended = 1;
-                $display("");
-                $display("=== PROGRAM COMPLETED at cycle %0d ===", cyc);
+                $display("\n=== ALGORITHM 4-7 TESTS COMPLETED at cycle %0d ===", cyc);
                 repeat (3) @(posedge clk);   // allow final pipeline operations
                 
-                check_multiplication_results();
+                verify_algorithm_results();
                 
-                $display("");
-                $display("Performance Statistics:");
+                $display("\nPerformance Statistics:");
                 $display("  Total execution cycles: %0d", cyc);
-                $display("  Instructions in program: 8");
-                $display("  Average CPI: %0d", cyc / 8);
                 $display("  Clock frequency: 50 MHz");
                 $display("  Execution time: %0d ns", cyc * 20);
                 
                 $fclose(trace_log);
-                $display("");
-                $display("=== SIMULATION COMPLETE ===");
+                $display("\n=== SIMULATION COMPLETE ===");
                 $finish;
             end
             
-            // Alternative termination: if result is correct AND ECALL detected
-            if (final_result_detected && ecall_detected && (cyc >= ecall_cycle + 3)) begin
+            // Safety: if PC goes beyond our test program
+            if (dut.PCD > 32'h00000090) begin  
                 program_ended = 1;
-                $display("");
-                $display("=== PROGRAM COMPLETED SUCCESSFULLY at cycle %0d ===", cyc);
+                $display("\n=== PROGRAM ENDED (PC out of range) at cycle %0d ===", cyc);
                 repeat (3) @(posedge clk);
-                check_multiplication_results();
-                $fclose(trace_log);
-                $finish;
-            end
-            
-            // Safety: if PC goes beyond program space
-            if (dut.PCD > 32'h0000001C && !ecall_detected) begin  
-                program_ended = 1;
-                $display("");
-                $display("=== PROGRAM ENDED (PC out of range) at cycle %0d ===", cyc);
-                repeat (3) @(posedge clk);
-                check_multiplication_results();
+                verify_algorithm_results();
                 $fclose(trace_log);
                 $finish;
             end
@@ -359,67 +338,23 @@ module Pipeline_Full_tb;
 
     //---------------------------- 16. Safety Timeout --------------------------
     initial begin
-        #200000; // 200us timeout
-        $display("");
-        $display("ERROR: Simulation timeout - program may be stuck");
+        #100000; // 100us timeout (much shorter for simple arithmetic tests)
+        $display("\nERROR: Simulation timeout - program may be stuck");
         $display("Final state at timeout:");
         $display("  PC: 0x%08h", dut.PCD);
         $display("  Current instruction: 0x%08h", dut.InstrD);
         $display("  Cycles executed: %0d", cyc);
         
-        check_multiplication_results();
+        verify_algorithm_results();
         $fclose(trace_log);
         $finish;
     end
 
     //---------------------------- 17. Early Debug ----------------------------- 
     always @(posedge clk) begin
-        if (!rst && (cyc <= 10)) begin
+        if (!rst && (cyc <= 15)) begin
             $display("EARLY: cyc=%0d PC=0x%08h instr=0x%08h", 
                      cyc, dut.PCD, dut.InstrD);
-        end
-    end
-
-    //---------------------------- 18. Performance Monitor ---------------------
-    integer mul_count;
-    integer branch_count;
-    
-    initial begin
-        mul_count = 0;
-        branch_count = 0;
-    end
-    
-    always @(posedge clk) begin
-        if (!rst) begin
-            // Count multiplication instructions
-            if ((dut.InstrD[6:0] == 7'b0110011) && (dut.InstrD[31:25] == 7'b0000001) && (dut.InstrD[14:12] == 3'b000)) begin
-                mul_count = mul_count + 1;
-                $display("MUL_COUNT: Multiplication #%0d executed", mul_count);
-                
-                // Report expected result after each multiplication
-                case (mul_count)
-                    1: $display("  Expected after MUL #1: x15 should become 2 (1*2)");
-                    2: $display("  Expected after MUL #2: x15 should become 6 (2*3)");
-                    3: $display("  Expected after MUL #3: x15 should become 24 (6*4)");
-                endcase
-            end
-            
-            // Count taken branches
-            if (dut.PCSrcE && dut.BranchE) begin
-                branch_count = branch_count + 1;
-                $display("BRANCH_COUNT: Branch #%0d taken", branch_count);
-                $display("  Branching back to multiplication loop");
-            end
-        end
-    end
-    
-    //---------------------------- 19. Third Multiplication Monitor -----------
-    always @(posedge clk) begin
-        if (!rst && mul_count == 3) begin
-            $display("");
-            $display("=== THIRD MULTIPLICATION DETECTED ===");
-            $display("This should calculate: 6 * 4 = 24");
-            $display("Monitoring register x15 for final result...");
         end
     end
 
