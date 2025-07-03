@@ -12,17 +12,15 @@ module Instruction_Memory
     
     // Debug output
     always @(*) begin
-        if (!rst && A[31:2] < 10) begin
+        if (!rst && A[31:2] < 15) begin
             $display("IMEM ACCESS: rst=%b, Address=0x%08h, Word_Addr=%0d, Instruction=0x%08h", 
                      rst, A, A[31:2], mem[A[31:2]]);
         end
     end
     
-   // K²RED and Plantard Modular Multiplication Algorithm Implementation
-// Based on research paper: "Hardware Implementation of K²RED and Plantard
-// Modular Multiplication Algorithms in Post-Quantum Cryptography"
-
-initial begin
+    // CORRECTED K²RED Algorithm Implementation
+    // Hand-crafted assembly for direct register operations
+   initial begin
     // Clear previous memory
     for (i = 0; i < 256; i = i + 1)
         mem[i] = 32'h00000013;
